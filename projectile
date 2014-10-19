@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 #
+# PROJECTILE
+# ----------
+# Simple program to bootstrap new projects
+#   - Scaffolds are dumb copies
+#   - Plugins generate dynamic content
+
+#
 # Imports
 #
 import os
@@ -7,6 +14,7 @@ import sys
 import argparse
 import json
 import subprocess
+import platform
 
 #
 # Version
@@ -16,14 +24,30 @@ _version = '0.0.3'
 #
 # Globals
 #
-_homePath     = os.environ['HOME'] + '/.projectile'
-_configPath   = _homePath + '/projectile.json'
-_scaffoldPath = _homePath + '/scaffold'
-_pluginPath   = _homePath + '/plugin'
+_test = False
+_noop = False
+_debug = False
+_home = os.environ['HOME']
+_path = {
+    'dir':      '%s/.projectile' % _home,
+    'scaffold': '%s/.projectile/scaffold' % _home,
+    'plugin':   '%s/.projectile/plugin' % _home,
+    'config':   '%s/.projectile/settings.json' % _home,
+}
 
 #
 # Helper Functions
 #
+
+# Testing during development
+def test():
+    # print(macro('stuff', { 'stuff': 'things' }))
+    content = getFileContents(_path['plugin'] + '/hl/sublime.sublime-project')
+    translate = {
+        'env': '53',
+        'blah': 'break_on_start'
+    }
+    print(macro(content, translate))
 
 # Returns string contents of a file
 def getFileContents(path):
@@ -39,9 +63,10 @@ def putFileContents(path, contents):
 
 def macro(text, translate):
     keys = translate.keys()
+    translatedText = text
     for term in keys:
-        text.replace(term, translate['term'])
-    return text
+        translatedText = translatedText.replace('%s%s' % ('%', term), translate[term])
+    return translatedText
 
 # Returns object from JSON string
 def getJsonConfig(path):
@@ -55,25 +80,29 @@ def execute(command):
 # Module Functions
 #
 
-# Testing purposes in development
-def test():
-    pass
-
-# Checks config directory exists
-def projectileExists():
-    return os.path.isdir(_homePath)
-
 # Loads config object from home directory
-def loadConfig():
-    return getJsonConfig(_configPath)
+def loadConfig(path):
+    return getJsonConfig(path)
+
+def pluginParams(string):
+    if ':' in string:
+        return {
+            string.split(':')[0]: string.split(':')[1]
+        }
+    else:
+        return string
+
 
 # Run all checks ahead of parsing
 def preChecks():
-    if not projectileExists():
-        print('Projectile home directory (~/.projectile) does not exist')
-        return
+    # Check for existance of program config directory
+    if not os.path.isdir(_path['dir']):
+        print('Projectile home directory does not exist')
+        print('(%s)' % _path['dir'])
+        return False
+    return True
 
-# Main project creation function
+# Main project function
 def createProject(project):
     if os.path.isdir(project):
         pass
@@ -82,13 +111,54 @@ def createProject(project):
         execute(['mkdir', project])
 
 # Main scaffolding function
-def applyScaffold(scaffold, project):
+def applyScaffold(project, scaffold):
     print('Applying project scaffold...')
-    execute(['cp', '-r', _scaffoldPath + '/' + scaffold + '/.', project])
+    execute([
+        'cp',
+        '-r',
+        '%s/%s/.' % (_path['scaffold'], scaffold),
+        project
+    ])
+
+def expandTranslation(translate, params):
+    expanded = {}
+    for word in translate:
+        for param in params:
+            if word in param:
+                expanded[word] = param[word]
+    return expanded
+
+# OS Sensitive symlink function
+def createSymlink(target, name, translate):
+    if translate is not None:
+        target = macro(target, translate)
+
+    if not os.path.exists(target):
+        print(' - Target does not exist')
+    elif os.path.exists(name):
+        print(' - Link path already exists')
+    else:
+        os.symlink(target, name)
 
 # Main plugin function
-def applyPlugin(plugin, project):
+def applyPlugin(project, plugin, optional):
     print('Applying plugin to project...')
+    config = loadConfig('%s/%s/config.json' % (_path['plugin'], plugin))
+    for req in config['require']:
+        found = False
+        for opt in optional:
+            if req in opt:
+                found = True
+        if not found:
+            print('Expected %s parameter for %s plugin' % (req, plugin))
+            return
+
+    for symlink in config['symlinks']:
+        createSymlink(
+            symlink['path'],
+            '%s/%s' % (project, symlink['name']),
+            expandTranslation(symlink['translation'], optional)
+        )
 
 #
 # Main Execution
@@ -97,10 +167,12 @@ def applyPlugin(plugin, project):
 # Catch exceptions
 #
 def main():
-    # test()
-    # return
-    preChecks()
-    config = loadConfig()
+    if _test:
+        test()
+        return
+    if not preChecks():
+        return
+    config = loadConfig(_path['config'])
     try:
         parser = argparse.ArgumentParser(
             description='Projectile: Project Manager'
@@ -127,16 +199,30 @@ def main():
             help='Choose complex behaviour for initialising your project',
             default=config['default']['plugin']
         )
+        parser.add_argument(
+            'optional',
+            action='store',
+            type=pluginParams,
+            help='Additional arguments required by plugins as name:value pairs',
+            nargs='*'
+        )
 
         args = parser.parse_args()
 
+        if _debug:
+            print(sys.argv)
+            print(args)
+
+        if _noop:
+            return
+
         createProject(args.project)
         if 'scaffold' in args:
-            applyScaffold(args.scaffold, args.project)
+            applyScaffold(args.project, args.scaffold)
         else:
             print('No scaffold used')
         if 'plugin' in args:
-            applyPlugin(args.plugin, args.project)
+            applyPlugin(args.project, args.plugin, args.optional)
         else:
             print('No plugin applied')
     except KeyboardInterrupt:
