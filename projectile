@@ -19,7 +19,7 @@ import platform
 #
 # Version
 #
-_version = '0.0.3'
+_version = '0.0.4'
 
 #
 # Globals
@@ -76,6 +76,10 @@ def getJsonConfig(path):
 def execute(command):
     subprocess.call(command)
 
+def createFolder(path):
+    if not os.path.isdir(path):
+        execute(['mkdir', path])
+
 #
 # Module Functions
 #
@@ -84,6 +88,7 @@ def execute(command):
 def loadConfig(path):
     return getJsonConfig(path)
 
+# Used to interpret plugin parameter entries
 def pluginParams(string):
     if ':' in string:
         return {
@@ -91,7 +96,6 @@ def pluginParams(string):
         }
     else:
         return string
-
 
 # Run all checks ahead of parsing
 def preChecks():
@@ -108,7 +112,7 @@ def createProject(project):
         pass
     else:
         print('Creating project directory...')
-        execute(['mkdir', project])
+        createFolder(project)
 
 # Main scaffolding function
 def applyScaffold(project, scaffold):
@@ -143,7 +147,15 @@ def createSymlink(target, name, translate):
 # Main plugin function
 def applyPlugin(project, plugin, optional):
     print('Applying plugin to project...')
-    config = loadConfig('%s/%s/config.json' % (_path['plugin'], plugin))
+    pluginPath = '%s/%s' % (_path['plugin'], plugin)
+    config = loadConfig('%s/config.json' % (pluginPath))
+    translation = {
+        'project': project
+    }
+    for option in optional:
+        translation.update(option)
+
+    # Check required inputs
     for req in config['require']:
         found = False
         for opt in optional:
@@ -153,12 +165,27 @@ def applyPlugin(project, plugin, optional):
             print('Expected %s parameter for %s plugin' % (req, plugin))
             return
 
-    for symlink in config['symlinks']:
-        createSymlink(
-            symlink['path'],
-            '%s/%s' % (project, symlink['name']),
-            expandTranslation(symlink['translation'], optional)
-        )
+    if 'symlinks' in config:
+        for symlink in config['symlinks']:
+            createSymlink(
+                symlink['path'],
+                '%s/%s' % (project, symlink['name']),
+                translation
+            )
+
+    if 'folders' in config:
+        for folder in config['folders']:
+            createFolder('%s/%s' % (project, folder))
+
+    if 'files' in config:
+        for file in config['files']:
+            # translation = expandTranslation(file['translation'], optional)
+            contents = getFileContents('%s/%s' % (pluginPath, file['source']))
+            print(macro('%s/%s' % (project, file['source']), translation))
+            putFileContents(
+                macro('%s/%s' % (project, file['source']), translation),
+                macro(contents, translation)
+            )
 
 #
 # Main Execution
@@ -220,7 +247,7 @@ def main():
         if 'scaffold' in args:
             applyScaffold(args.project, args.scaffold)
         else:
-            print('No scaffold used')
+            print('No scaffold applied')
         if 'plugin' in args:
             applyPlugin(args.project, args.plugin, args.optional)
         else:
