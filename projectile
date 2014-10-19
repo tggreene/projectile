@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+#
+# Imports
+#
+import os
+import sys
+import argparse
+import json
+import subprocess
+
+#
+# Version
+#
+_version = '0.0.3'
+
+#
+# Globals
+#
+_homePath     = os.environ['HOME'] + '/.projectile'
+_configPath   = _homePath + '/projectile.json'
+_scaffoldPath = _homePath + '/scaffold'
+_pluginPath   = _homePath + '/plugin'
+
+#
+# Helper Functions
+#
+
+# Returns string contents of a file
+def getFileContents(path):
+    file = open(path, 'r')
+    contents = file.read()
+    file.close()
+    return contents
+
+def putFileContents(path, contents):
+    file = open(path, 'w')
+    file.write(contents)
+    file.close()
+
+def macro(text, translate):
+    keys = translate.keys()
+    for term in keys:
+        text.replace(term, translate['term'])
+    return text
+
+# Returns object from JSON string
+def getJsonConfig(path):
+    return json.loads(getFileContents(path))
+
+# Generic method to execute command list directly
+def execute(command):
+    subprocess.call(command)
+
+#
+# Module Functions
+#
+
+# Testing purposes in development
+def test():
+    pass
+
+# Checks config directory exists
+def projectileExists():
+    return os.path.isdir(_homePath)
+
+# Loads config object from home directory
+def loadConfig():
+    return getJsonConfig(_configPath)
+
+# Run all checks ahead of parsing
+def preChecks():
+    if not projectileExists():
+        print('Projectile home directory (~/.projectile) does not exist')
+        return
+
+# Main project creation function
+def createProject(project):
+    if os.path.isdir(project):
+        pass
+    else:
+        print('Creating project directory...')
+        execute(['mkdir', project])
+
+# Main scaffolding function
+def applyScaffold(scaffold, project):
+    print('Applying project scaffold...')
+    execute(['cp', '-r', _scaffoldPath + '/' + scaffold + '/.', project])
+
+# Main plugin function
+def applyPlugin(plugin, project):
+    print('Applying plugin to project...')
+
+#
+# Main Execution
+#
+# Encapsulate execution behaviour
+# Catch exceptions
+#
+def main():
+    # test()
+    # return
+    preChecks()
+    config = loadConfig()
+    try:
+        parser = argparse.ArgumentParser(
+            description='Projectile: Project Manager'
+        )
+        parser.add_argument(
+            'project',
+            action='store',
+            type=str,
+            help='Project name',
+        )
+        parser.add_argument(
+            '-s',
+            '--scaffold',
+            action='store',
+            type=str,
+            help='Choose scaffolding for your project',
+            default=config['default']['scaffold']
+        )
+        parser.add_argument(
+            '-p',
+            '--plugin',
+            action='store',
+            type=str,
+            help='Choose complex behaviour for initialising your project',
+            default=config['default']['plugin']
+        )
+
+        args = parser.parse_args()
+
+        createProject(args.project)
+        if 'scaffold' in args:
+            applyScaffold(args.scaffold, args.project)
+        else:
+            print('No scaffold used')
+        if 'plugin' in args:
+            applyPlugin(args.plugin, args.project)
+        else:
+            print('No plugin applied')
+    except KeyboardInterrupt:
+        pass
+
+# Default execution handler
+if __name__ == '__main__':
+    main()
